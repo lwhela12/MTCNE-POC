@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #faf7f2;
+}
+
+body { @apply bg-[var(--bg)]; }
+
+.card { @apply border rounded-lg bg-white shadow-sm; }
+.btn { @apply inline-flex items-center justify-center rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50; }
+.btn-primary { @apply bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700; }
+.input { @apply border rounded-md px-3 py-2 text-sm; }
+.select { @apply border rounded-md px-3 py-2 text-sm; }
+.textarea { @apply border rounded-md p-3 text-sm; }
+
