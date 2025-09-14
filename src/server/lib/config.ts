@@ -9,6 +9,7 @@ export const USE_LLM = truthy(process.env.USE_LLM, false);
 export const USE_CLOUD_LLM = truthy(process.env.USE_CLOUD_LLM, false);
 export const EMBEDDING_PROVIDER = process.env.EMBEDDING_PROVIDER || 'xenova';
 export const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'Xenova/all-MiniLM-L6-v2';
+export const LLM_MODEL = process.env.LLM_MODEL || 'gpt-4o-mini';
 
 export const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 10);
 export const MAX_PAGES = Number(process.env.MAX_PAGES || 300);
@@ -19,4 +20,5 @@ export const SUBJECT_BOOST = Number(process.env.SUBJECT_BOOST || 1.2);
 export const PLANE_BOOST = Number(process.env.PLANE_BOOST || 1.2);
 export const PHRASE_BOOST = Number(process.env.PHRASE_BOOST || 1.2);
 export const LOW_CONFIDENCE_THRESHOLD = Number(process.env.LOW_CONFIDENCE_THRESHOLD || 0.35);
-
+export const MIN_FINAL_SCORE = Number(process.env.MIN_FINAL_SCORE || 0.1);
+export const RERANK_TOPK = Number(process.env.RERANK_TOPK || 8);

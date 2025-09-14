@@ -13,6 +13,8 @@ import {
 import type { DocChunk, IngestedDocument, SearchHit } from '../../shared/types.js';
 import { cosine, getEmbeddingProvider } from './embeddings.js';
 import { getCorpusEmbeddings } from './ensure_corpus_embeddings.js';
+import { canonicalizeQuery, rerankCandidates } from './llm.js';
+import { MIN_FINAL_SCORE, RERANK_TOPK, USE_LLM, USE_CLOUD_LLM } from './config.js';
 
 type CorpusEntry = {
   id: string;
@@ -50,11 +52,26 @@ export async function searchHybrid(params: {
   plane?: string;
   topK?: number;
 }): Promise<{ hits: SearchHit[]; lowConfidence: boolean }> {
-  const { q, subject, plane, topK = 3 } = params;
+  const { q, topK = 3 } = params;
+  let subject = params.subject;
+  let plane = params.plane;
   const corpus = readJson<CorpusEntry[]>('corpus.json', []);
   const chunks = readJson<DocChunk[]>('chunks.json', []);
   const docs = readJson<IngestedDocument[]>('documents.json', []);
   const corpusEmb = getCorpusEmbeddings();
+
+  // Optional LLM canonicalization to normalize query and extract hints
+  let normalizedQ = q;
+  let extraKeywords: string[] = [];
+  if (USE_LLM && USE_CLOUD_LLM) {
+    const can = await canonicalizeQuery({ q, subject, plane });
+    if (can) {
+      normalizedQ = can.normalizedQuery || q;
+      subject = can.subject || subject;
+      plane = can.plane || plane;
+      extraKeywords = can.keywords || [];
+    }
+  }
 
   // Build unified candidates list
   const items: { id: string; title: string; text: string; source: string; subject?: string; plane?: string; embedding?: number[] }[] = [];
@@ -79,7 +96,8 @@ export async function searchHybrid(params: {
   let bm25Results: Record<string, number> = {};
   if (USE_BM25) {
     buildBM25Index(filtered.map((f) => ({ id: f.id, text: f.text })));
-    for (const { id, score } of bm25Lookup(q, 50)) {
+    const bm25Query = [normalizedQ, ...extraKeywords].join(' ');
+    for (const { id, score } of bm25Lookup(bm25Query, 50)) {
       bm25Results[id] = score;
     }
   }
@@ -91,7 +109,16 @@ export async function searchHybrid(params: {
     const provider = await getEmbeddingProvider();
     if (provider) {
       try {
-        const [qEmb] = await provider.embed([q]);
+        const [qEmb, nEmb] = await provider.embed([q, normalizedQ]);
+        // Average original and normalized
+        const avg: number[] = [];
+        const L = Math.min(qEmb.length, nEmb.length);
+        for (let i = 0; i < L; i++) avg[i] = (qEmb[i] + nEmb[i]) / 2;
+        const norm = (v: number[]) => {
+          let s = 0; for (const x of v) s += x * x; s = Math.sqrt(s) || 1;
+          return v.map((x) => x / s);
+        };
+        queryEmbedding = norm(avg);
         queryEmbedding = qEmb;
         // Compute if missing
         for (const it of filtered) {
@@ -127,9 +154,30 @@ export async function searchHybrid(params: {
     });
   }
 
-  const ranked = [...candMap.values()].sort((a, b) => b.score - a.score).slice(0, topK);
-  const lowConfidence = (ranked[0]?.cosine ?? 0) < LOW_CONFIDENCE_THRESHOLD && (ranked[0]?.bm25 ?? 0) < 0.1;
-  const hits: SearchHit[] = ranked.map((c, i) => ({
+  let ranked = [...candMap.values()].sort((a, b) => b.score - a.score);
+
+  // Optional LLM rerank on top-K candidates
+  if (USE_LLM && USE_CLOUD_LLM && ranked.length > 1) {
+    const subset = ranked.slice(0, Math.min(RERANK_TOPK, ranked.length));
+    try {
+      const order = await rerankCandidates(normalizedQ, subset.map((c) => ({ id: c.id, title: c.title, excerpt: c.excerpt, source: c.source })));
+      if (order && order.length) {
+        const pos = new Map(order.map((id, i) => [id, i]));
+        subset.sort((a, b) => (pos.get(a.id) ?? 1e9) - (pos.get(b.id) ?? 1e9));
+        // Merge back with the rest, keeping re-ranked subset first
+        const rest = ranked.slice(subset.length);
+        ranked = [...subset, ...rest];
+      }
+    } catch (e) {
+      console.warn('[retrieval] rerank failed', e);
+    }
+  }
+
+  // Apply minimum score cutoff to avoid random-feeling results
+  ranked = ranked.filter((c) => c.score >= MIN_FINAL_SCORE).slice(0, topK);
+
+  const lowConfidence = ranked.length === 0 || ((ranked[0]?.cosine ?? 0) < LOW_CONFIDENCE_THRESHOLD && (ranked[0]?.bm25 ?? 0) < 0.1);
+  const hits: SearchHit[] = ranked.map((c) => ({
     id: c.id,
     title: c.title,
     excerpt: c.excerpt,

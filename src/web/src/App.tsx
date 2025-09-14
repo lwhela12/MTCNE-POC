@@ -42,6 +42,7 @@ function TopBar({ current, onNav }: { current: Tab; onNav: (t: Tab) => void }) {
 function Home() {
   const [obs, setObs] = useState<Observation[]>([]);
   const [form, setForm] = useState({ student: '', plane: '6-12', subject: 'Math', observation: '' });
+  const [filterStudent, setFilterStudent] = useState<string>('');
 
   useEffect(() => {
     api.listObservations().then(setObs);
@@ -58,6 +59,10 @@ function Home() {
     const updated = await api.patchObservation(id, { outcome });
     setObs((prev) => prev.map((o) => (o.id === id ? updated : o)));
   };
+
+  const students = Array.from(new Set(obs.map((o) => o.student)));
+
+  const filtered = filterStudent ? obs.filter((o) => o.student === filterStudent) : obs;
 
   return (
     <div>
@@ -83,8 +88,19 @@ function Home() {
           </div>
         </div>
         <div className="card p-4">
-          <h3 className="font-medium mb-2">Observation Timeline</h3>
-          {obs.map((o) => (
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-medium">Observation Timeline</h3>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600">Filter:</label>
+              <select className="select" value={filterStudent} onChange={(e) => setFilterStudent(e.target.value)}>
+                <option value="">All</option>
+                {students.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {filtered.map((o) => (
             <div key={o.id} className="border rounded-md p-3 mb-3">
               <div className="flex justify-between text-sm">
                 <div>
@@ -118,7 +134,9 @@ function AskAlbum() {
   const [subject, setSubject] = useState('');
   const [plane, setPlane] = useState('');
   const [results, setResults] = useState<SearchHit[]>([]);
+  const [low, setLow] = useState(false);
   const [observations, setObservations] = useState<Observation[]>([]);
+  const [targetObsId, setTargetObsId] = useState<string>('');
   const latestObservation = useMemo(() => observations[0], [observations]);
 
   useEffect(() => {
@@ -126,23 +144,36 @@ function AskAlbum() {
   }, []);
 
   const search = async () => {
-    const hits = await api.search({ q, subject: subject || undefined, plane: plane || undefined });
+    const { hits, lowConfidence } = await api.search({ q, subject: subject || undefined, plane: plane || undefined });
     setResults(hits);
+    setLow(lowConfidence || hits.length === 0);
   };
 
-  const applyToLatest = async (hit: SearchHit) => {
-    if (!latestObservation) return alert('Log an observation first');
+  const applyToObservation = async (hit: SearchHit) => {
+    const targetId = targetObsId || latestObservation?.id;
+    if (!targetId) return alert('Log an observation first');
     const action = `Applied: ${hit.title}`;
     const albumHit = { source: hit.source, excerpt: hit.excerpt, badge: hit.badge };
-    const updated = await api.patchObservation(latestObservation.id, { action, albumHit });
+    const updated = await api.patchObservation(targetId, { action, albumHit });
     setObservations((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
-    alert('Applied to latest observation');
+    // simple toast-like message
+    window.setTimeout(() => {}, 100);
+    alert('Applied to observation');
   };
 
   return (
     <div>
       <h2 className="font-serif text-2xl mb-3">Ask the Album</h2>
       <div className="grid gap-3 max-w-3xl">
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600">Apply to:</label>
+          <select className="select" value={targetObsId} onChange={(e) => setTargetObsId(e.target.value)}>
+            <option value="">Latest</option>
+            {observations.map((o) => (
+              <option key={o.id} value={o.id}>{o.student} · {o.subject} · {o.date}</option>
+            ))}
+          </select>
+        </div>
         <textarea className="textarea" placeholder="Describe observation..." value={q} onChange={(e) => setQ(e.target.value)} />
         <div className="flex gap-2">
           <select className="select" value={subject} onChange={(e) => setSubject(e.target.value)}>
@@ -160,13 +191,18 @@ function AskAlbum() {
           </select>
           <button className="btn btn-primary" onClick={search}>Search</button>
         </div>
+        {low && (
+          <div className="border border-amber-200 bg-amber-50 text-amber-800 rounded-md p-3">
+            No strong matches found. Marked for trainer review.
+          </div>
+        )}
         <div>
           {results.map((r) => (
             <div key={r.id} className="border rounded-md p-3 mb-3 bg-white">
               <div><strong>{r.title}</strong></div>
               <div className="text-xs text-gray-600">{r.source} · {r.badge}</div>
               <div className="mt-1">{r.excerpt}</div>
-              <button className="btn mt-2" onClick={() => applyToLatest(r)}>Apply to latest observation</button>
+              <button className="btn mt-2" onClick={() => applyToObservation(r)}>Apply to observation</button>
             </div>
           ))}
         </div>

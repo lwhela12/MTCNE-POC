@@ -15,6 +15,7 @@ router.post('/', async (req, res) => {
       queue.push({ id: `tq_${Date.now()}`, query: q, subject, plane, createdAt: new Date().toISOString(), status: 'open' });
       writeJson('trainer.json', queue);
     }
+    if (lowConfidence) res.setHeader('x-low-confidence', '1');
     return res.json(hits);
   } catch (e: any) {
     return res.status(500).json({ error: 'search_failed', detail: String(e?.message || e) });

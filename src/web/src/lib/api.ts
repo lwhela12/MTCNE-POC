@@ -30,9 +30,11 @@ export const api = {
     const r = await fetch(`/api/observations/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     return r.json();
   },
-  async search(body: { q: string; subject?: string; plane?: string }): Promise<SearchHit[]> {
+  async search(body: { q: string; subject?: string; plane?: string }): Promise<{ hits: SearchHit[]; lowConfidence: boolean }> {
     const r = await fetch('/api/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    return r.json();
+    const low = r.headers.get('x-low-confidence') === '1';
+    const hits = await r.json();
+    return { hits, lowConfidence: low };
   },
   async report(params: { n: string; from?: string; to?: string }): Promise<{ narrative: string }> {
     const qs = new URLSearchParams(params as any).toString();
@@ -63,4 +65,3 @@ export const api = {
     return r.json();
   },
 };
-
