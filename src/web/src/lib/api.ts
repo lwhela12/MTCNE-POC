@@ -22,6 +22,12 @@ export const api = {
     const r = await fetch('/api/observations' + (qs ? `?${qs}` : ''));
     return r.json();
   },
+  async searchWithAnswer(body: { q: string; subject?: string; plane?: string }): Promise<{ hits: SearchHit[]; lowConfidence: boolean; answer?: { answer: string; recommendations: { id: string; title: string; source: string }[]; citations?: { id: string; title: string; source: string; quote: string }[] } }>{
+    const r = await fetch('/api/search/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const low = r.headers.get('x-low-confidence') === '1';
+    const json = await r.json();
+    return { ...json, lowConfidence: low };
+  },
   async createObservation(body: { student: string; subject: string; plane: string; observation: string; date?: string }): Promise<Observation> {
     const r = await fetch('/api/observations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     return r.json();
@@ -35,6 +41,11 @@ export const api = {
     const low = r.headers.get('x-low-confidence') === '1';
     const hits = await r.json();
     return { hits, lowConfidence: low };
+  },
+  async searchItem(id: string): Promise<{ id: string; title: string; text: string; source: string; badge: string; pdfUrl?: string; docId?: string; page?: number }>{
+    const r = await fetch(`/api/search/item/${encodeURIComponent(id)}`);
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
   },
   async report(params: { n: string; from?: string; to?: string }): Promise<{ narrative: string }> {
     const qs = new URLSearchParams(params as any).toString();

@@ -54,3 +54,7 @@ export function chunkTextByPage(text: string, page: number, opts?: { min?: numbe
   }
   return chunks;
 }
+
+export function makeChunkId(docId: string, page: number, idx: number) {
+  return `chunk_${docId}_p${page}_i${idx}`;
+}

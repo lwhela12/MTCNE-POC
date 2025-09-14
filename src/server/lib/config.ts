@@ -22,3 +22,4 @@ export const PHRASE_BOOST = Number(process.env.PHRASE_BOOST || 1.2);
 export const LOW_CONFIDENCE_THRESHOLD = Number(process.env.LOW_CONFIDENCE_THRESHOLD || 0.35);
 export const MIN_FINAL_SCORE = Number(process.env.MIN_FINAL_SCORE || 0.1);
 export const RERANK_TOPK = Number(process.env.RERANK_TOPK || 8);
+import 'dotenv/config';

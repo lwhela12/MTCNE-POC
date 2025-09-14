@@ -104,3 +104,51 @@ Return a strict JSON array of candidate ids in best-to-worst order. No commentar
   }
 }
 
+export async function generateGuidance(input: {
+  query: string;
+  hits: { id: string; title: string; excerpt: string; source: string }[];
+}): Promise<{
+  answer: string;
+  recommendations: { id: string; title: string; source: string }[];
+  citations: { id: string; title: string; source: string; quote: string }[];
+} | null> {
+  if (!USE_LLM || !USE_CLOUD_LLM) return null;
+  const client = await getOpenAI();
+  if (!client) return null;
+  const prompt = `You are helping a Montessori guide. Generate a brief, grounded response using ONLY the provided excerpts.
+Rules:
+- Do NOT invent any pedagogy; you may quote directly and paraphrase minimally.
+- Include at least ONE direct quote from the excerpts, marked with quotes, and cite its source.
+- Keep the response concise (2–4 sentences), using Montessori language where appropriate.
+- Also return a list of cited sources used (with the exact quote) and recommended further reading.
+Output strict JSON with keys:
+{
+  "answer": string,
+  "citations": [{"id": string, "title": string, "source": string, "quote": string}],
+  "recommendations": [{"id": string, "title": string, "source": string}]
+}`;
+  const user = {
+    query: input.query,
+    candidates: input.hits.map((h) => ({ id: h.id, title: h.title, source: h.source, excerpt: h.excerpt })),
+  };
+  try {
+    const resp = await client.chat.completions.create({
+      model: LLM_MODEL,
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: JSON.stringify(user) },
+      ],
+      temperature: 0,
+      response_format: { type: 'json_object' } as any,
+    });
+    const content = resp.choices[0]?.message?.content || '{}';
+    const parsed = JSON.parse(content);
+    if (!parsed || typeof parsed.answer !== 'string') return null;
+    const recs = Array.isArray(parsed.recommendations) ? parsed.recommendations.map((r: any) => ({ id: String(r.id), title: String(r.title || ''), source: String(r.source || '') })) : [];
+    const cites = Array.isArray(parsed.citations) ? parsed.citations.map((c: any) => ({ id: String(c.id), title: String(c.title || ''), source: String(c.source || ''), quote: String(c.quote || '') })) : [];
+    return { answer: parsed.answer, recommendations: recs, citations: cites };
+  } catch (e) {
+    console.warn('[llm] guidance failed', e);
+    return null;
+  }
+}

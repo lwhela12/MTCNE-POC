@@ -138,15 +138,25 @@ function AskAlbum() {
   const [observations, setObservations] = useState<Observation[]>([]);
   const [targetObsId, setTargetObsId] = useState<string>('');
   const latestObservation = useMemo(() => observations[0], [observations]);
+  const [reader, setReader] = useState<null | { id: string; title: string; text: string; source: string; badge: string; pdfUrl?: string }>(null);
+  const [guidance, setGuidance] = useState<null | { answer: string; recommendations: { id: string; title: string; source: string }[]; citations?: { id: string; title: string; source: string; quote: string }[] }>(null);
 
   useEffect(() => {
     api.listObservations().then(setObservations);
   }, []);
 
   const search = async () => {
-    const { hits, lowConfidence } = await api.search({ q, subject: subject || undefined, plane: plane || undefined });
-    setResults(hits);
-    setLow(lowConfidence || hits.length === 0);
+    // Try to get LLM guidance (falls back to just hits if LLM disabled)
+    try {
+      const { hits, answer, lowConfidence } = await api.searchWithAnswer({ q, subject: subject || undefined, plane: plane || undefined });
+      setGuidance(answer || null);
+      setResults(hits || []);
+      setLow(!!lowConfidence || (hits || []).length === 0);
+    } catch {
+      const { hits, lowConfidence } = await api.search({ q, subject: subject || undefined, plane: plane || undefined });
+      setResults(hits);
+      setLow(lowConfidence || hits.length === 0);
+    }
   };
 
   const applyToObservation = async (hit: SearchHit) => {
@@ -191,6 +201,39 @@ function AskAlbum() {
           </select>
           <button className="btn btn-primary" onClick={search}>Search</button>
         </div>
+        {guidance && (
+          <div className="border-2 border-emerald-300 rounded-md p-4 bg-white">
+            <div className="font-serif text-xl mb-2">AI Guidance</div>
+            <div className="text-base whitespace-pre-wrap">{guidance.answer}</div>
+            {!!guidance.citations?.length && (
+              <div className="mt-3">
+                <div className="text-xs text-gray-600 mb-1">Cited sources</div>
+                <ul className="list-disc pl-5">
+                  {guidance.citations.map((c) => (
+                    <li key={c.id} className="text-sm mb-1">
+                      <span className="italic">“{c.quote}”</span>
+                      <span className="text-xs text-gray-600"> — {c.source}</span>
+                      <button className="ml-2 underline text-xs" onClick={async () => { const d = await api.searchItem(c.id); setReader(d as any); }}>Read</button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {!!guidance.recommendations?.length && (
+              <div className="mt-2">
+                <div className="text-xs text-gray-600 mb-1">Recommended further reading</div>
+                <ul className="list-disc pl-5">
+                  {guidance.recommendations.map((r) => (
+                    <li key={r.id} className="text-sm">
+                      <button className="underline" onClick={async () => { const d = await api.searchItem(r.id); setReader(d as any); }}>{r.title || r.source}</button>
+                      <span className="text-xs text-gray-600"> — {r.source}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
         {low && (
           <div className="border border-amber-200 bg-amber-50 text-amber-800 rounded-md p-3">
             No strong matches found. Marked for trainer review.
@@ -202,11 +245,31 @@ function AskAlbum() {
               <div><strong>{r.title}</strong></div>
               <div className="text-xs text-gray-600">{r.source} · {r.badge}</div>
               <div className="mt-1">{r.excerpt}</div>
-              <button className="btn mt-2" onClick={() => applyToObservation(r)}>Apply to observation</button>
+              <div className="flex gap-2 mt-2">
+                <button className="btn" onClick={() => applyToObservation(r)}>Apply to observation</button>
+                <button className="btn" onClick={async () => { const d = await api.searchItem(r.id); setReader(d as any); }}>Read</button>
+              </div>
             </div>
           ))}
         </div>
       </div>
+      {reader && (
+        <div className="fixed inset-0 bg-black/30 grid place-items-center" onClick={() => setReader(null)}>
+          <div className="card max-w-3xl w-[90vw] max-h-[80vh] overflow-auto p-4 bg-white" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <div className="font-medium">{reader.title}</div>
+                <div className="text-xs text-gray-600">{reader.source}</div>
+              </div>
+              <button className="btn" onClick={() => setReader(null)}>Close</button>
+            </div>
+            <div className="whitespace-pre-wrap text-sm">{reader.text}</div>
+            {reader.pdfUrl && (
+              <a className="btn btn-primary mt-3 inline-block" href={reader.pdfUrl} target="_blank" rel="noreferrer">Open PDF at page</a>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -14,7 +14,7 @@ import type { DocChunk, IngestedDocument, SearchHit } from '../../shared/types.j
 import { cosine, getEmbeddingProvider } from './embeddings.js';
 import { getCorpusEmbeddings } from './ensure_corpus_embeddings.js';
 import { canonicalizeQuery, rerankCandidates } from './llm.js';
-import { MIN_FINAL_SCORE, RERANK_TOPK, USE_LLM, USE_CLOUD_LLM } from './config.js';
+import { LLM_MODEL, MIN_FINAL_SCORE, RERANK_TOPK, USE_LLM, USE_CLOUD_LLM } from './config.js';
 
 type CorpusEntry = {
   id: string;
@@ -60,16 +60,22 @@ export async function searchHybrid(params: {
   const docs = readJson<IngestedDocument[]>('documents.json', []);
   const corpusEmb = getCorpusEmbeddings();
 
+  const meta = { canonicalizeUsed: false, canonicalizeMs: 0, rerankUsed: false, rerankMs: 0 };
+
   // Optional LLM canonicalization to normalize query and extract hints
   let normalizedQ = q;
   let extraKeywords: string[] = [];
   if (USE_LLM && USE_CLOUD_LLM) {
+    const t0 = Date.now();
     const can = await canonicalizeQuery({ q, subject, plane });
+    meta.canonicalizeMs = Date.now() - t0;
     if (can) {
+      meta.canonicalizeUsed = true;
       normalizedQ = can.normalizedQuery || q;
       subject = can.subject || subject;
       plane = can.plane || plane;
       extraKeywords = can.keywords || [];
+      console.log(`[llm] canonicalize (${LLM_MODEL}) ${meta.canonicalizeMs}ms q="${q}" -> "${normalizedQ}" subj=${subject ?? '-'} plane=${plane ?? '-'}`);
     }
   }
 
@@ -77,10 +83,9 @@ export async function searchHybrid(params: {
   const items: { id: string; title: string; text: string; source: string; subject?: string; plane?: string; embedding?: number[] }[] = [];
   for (const c of corpus) items.push({ id: `corpus-${c.id}`, title: c.title, text: c.text, source: c.source, subject: c.subject, plane: c.plane, embedding: corpusEmb[c.id] });
   const titleByDoc: Record<string, string> = Object.fromEntries(docs.map((d) => [d.id, d.title]));
-  let chunkCounter = 0;
   for (const ch of chunks) {
     const title = titleByDoc[ch.docId] || ch.heading || 'Ingested Document';
-    const id = `chunk-${ch.docId}-${ch.page}-${chunkCounter++}`;
+    const id = ch.id || `chunk-${ch.docId}-${ch.page}`;
     const source = `${title} · p.${ch.page}`;
     items.push({ id, title: ch.heading || title, text: ch.text, source, subject: ch.subject, plane: ch.plane, embedding: ch.embedding });
   }
@@ -119,11 +124,11 @@ export async function searchHybrid(params: {
           return v.map((x) => x / s);
         };
         queryEmbedding = norm(avg);
-        queryEmbedding = qEmb;
+        const qVec = queryEmbedding ?? qEmb;
         // Compute if missing
         for (const it of filtered) {
           if (!it.embedding) continue;
-          const sim = cosine(qEmb, it.embedding);
+          const sim = cosine(qVec, it.embedding);
           cosineResults[it.id] = sim;
         }
       } catch (e) {
@@ -160,13 +165,17 @@ export async function searchHybrid(params: {
   if (USE_LLM && USE_CLOUD_LLM && ranked.length > 1) {
     const subset = ranked.slice(0, Math.min(RERANK_TOPK, ranked.length));
     try {
+      const t0 = Date.now();
       const order = await rerankCandidates(normalizedQ, subset.map((c) => ({ id: c.id, title: c.title, excerpt: c.excerpt, source: c.source })));
+      meta.rerankMs = Date.now() - t0;
       if (order && order.length) {
+        meta.rerankUsed = true;
         const pos = new Map(order.map((id, i) => [id, i]));
         subset.sort((a, b) => (pos.get(a.id) ?? 1e9) - (pos.get(b.id) ?? 1e9));
         // Merge back with the rest, keeping re-ranked subset first
         const rest = ranked.slice(subset.length);
         ranked = [...subset, ...rest];
+        console.log(`[llm] rerank (${LLM_MODEL}) ${meta.rerankMs}ms over ${subset.length} candidates`);
       }
     } catch (e) {
       console.warn('[retrieval] rerank failed', e);
@@ -184,7 +193,7 @@ export async function searchHybrid(params: {
     source: c.source,
     badge: c.source.includes('· p.') ? 'Album-sourced | AMI' : 'Trainer-reviewed',
   }));
-  return { hits, lowConfidence };
+  return { hits, lowConfidence, meta } as any;
 }
 
 function pickExcerpt(text: string, q: string): string {

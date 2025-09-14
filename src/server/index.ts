@@ -6,6 +6,7 @@ import reportsRouter from './routes/reports.js';
 import trainerRouter from './routes/trainer.js';
 import ingestRouter from './routes/ingest.js';
 import { ensureDataFiles } from './lib/store.js';
+import { USE_LLM, USE_CLOUD_LLM, USE_EMBEDDINGS, USE_BM25, EMBEDDING_PROVIDER, LLM_MODEL } from './lib/config.js';
 import { ensureCorpusEmbeddings } from './lib/ensure_corpus_embeddings.js';
 
 const app = express();
@@ -29,4 +30,7 @@ app.use('/uploads', express.static(path.resolve(path.dirname(new URL(import.meta
 const PORT = Number(process.env.SERVER_PORT || 3001);
 app.listen(PORT, () => {
   console.log(`[server] Listening on http://localhost:${PORT}`);
+  console.log(
+    `[server] modes: embeddings=${USE_EMBEDDINGS}(${EMBEDDING_PROVIDER}), bm25=${USE_BM25}, llm=${USE_LLM}/${USE_CLOUD_LLM}${USE_LLM && USE_CLOUD_LLM ? `(${LLM_MODEL})` : ''}`
+  );
 });

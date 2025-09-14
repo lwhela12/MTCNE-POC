@@ -35,6 +35,7 @@ export interface IngestedDocument {
 }
 
 export interface DocChunk {
+  id?: string;
   docId: string;
   page: number;
   heading?: string;
@@ -61,4 +62,3 @@ export interface TrainerReply {
   text: string;
   createdAt: string; // ISO
 }
-

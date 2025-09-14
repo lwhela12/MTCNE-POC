@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { extractPdfPerPage, chunkTextByPage } from '../lib/ingest.js';
+import { extractPdfPerPage, chunkTextByPage, makeChunkId } from '../lib/ingest.js';
 import { MAX_PAGES, MAX_UPLOAD_MB, USE_EMBEDDINGS } from '../lib/config.js';
 import { readJson, writeJson, dataDir } from '../lib/store.js';
 import type { DocChunk, IngestedDocument } from '../../shared/types.js';
@@ -51,7 +51,10 @@ router.post('/', upload.single('file'), async (req, res) => {
       const pageNum = p + 1;
       const pageText = perPageText[p] || '';
       const pieces = chunkTextByPage(pageText, pageNum);
-      for (const piece of pieces) newChunks.push({ docId, page: pageNum, text: piece });
+      for (let i = 0; i < pieces.length; i++) {
+        const piece = pieces[i];
+        newChunks.push({ id: makeChunkId(docId, pageNum, i), docId, page: pageNum, text: piece });
+      }
     }
 
     // Embeddings (optional)
