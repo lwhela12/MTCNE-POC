@@ -1,1 +1,15 @@
 node_modules
+dist
+.env
+.DS_Store
+.vercel
+.cache
+/src/server/data/uploads/*
+!/src/server/data/uploads/.gitkeep
+src/server/data/*.json
+!src/server/data/corpus.json
+!src/server/data/chunks.json
+!src/server/data/documents.json
+!src/server/data/observations.json
+!src/server/data/trainer.json
+!src/server/data/corpus_embeddings.json
